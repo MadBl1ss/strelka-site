@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useId, useMemo, useState } from "react";
 import type { Rules } from "@/lib/rules";
 
 type Verdict = { to: "vpn" | "direct"; title: string; why: string };
@@ -99,9 +99,112 @@ function check(rules: Rules, raw: string): Verdict | null {
   };
 }
 
+type Entry = { value: string; source: string; to: "vpn" | "direct"; rank: number; app?: string };
+
+// Всё, что можно подсказать. rank решает при равном совпадении: программы и
+// свои списки выше автосписка. Домен из нескольких списков берётся из первого,
+// как его и проверит sing-box.
+function buildIndex(rules: Rules): Entry[] {
+  const out: Entry[] = [];
+  const seen = new Set<string>();
+  const add = (e: Entry) => {
+    const key = e.value.toLowerCase();
+    if (seen.has(key)) return;
+    seen.add(key);
+    out.push(e);
+  };
+  for (const g of rules.direct.apps)
+    for (const exe of g.exes) add({ value: exe, app: g.name, source: g.name, to: "direct", rank: 0 });
+  for (const g of rules.vpn.apps)
+    for (const exe of g.exes) add({ value: exe, app: g.name, source: g.name, to: "vpn", rank: 0 });
+  for (const d of rules.direct.domains) add({ value: d, source: "напрямую", to: "direct", rank: 1 });
+  for (const d of rules.vpn.domains) add({ value: d, source: "наш список", to: "vpn", rank: 1 });
+  for (const d of rules.auto.googleAi) add({ value: d, source: "ИИ от Google", to: "vpn", rank: 2 });
+  for (const d of rules.auto.inside) add({ value: d, source: "автосписок", to: "vpn", rank: 3 });
+  return out;
+}
+
+const MAX_SUGGESTIONS = 8;
+const words = (s: string) => s.toLowerCase().split(/[.\-\s]+/);
+
+// Сначала то, что начинается с запроса (или программа с таким названием),
+// потом совпадение с началом части адреса, потом просто вхождение.
+function suggest(index: Entry[], raw: string) {
+  const q = normalize(raw);
+  if (q.length < 2) return { items: [], total: 0 };
+  const hits: { e: Entry; score: number }[] = [];
+  for (const e of index) {
+    const v = e.value.toLowerCase();
+    let score = -1;
+    if (v.startsWith(q) || e.app?.toLowerCase().startsWith(q)) score = 0;
+    else if (words(v).some((w) => w.startsWith(q)) || (e.app && words(e.app).some((w) => w.startsWith(q)))) score = 1;
+    else if (v.includes(q)) score = 2;
+    if (score >= 0) hits.push({ e, score });
+  }
+  hits.sort(
+    (a, b) =>
+      a.score - b.score ||
+      a.e.rank - b.e.rank ||
+      a.e.value.length - b.e.value.length ||
+      a.e.value.localeCompare(b.e.value),
+  );
+  return { items: hits.slice(0, MAX_SUGGESTIONS).map((h) => h.e), total: hits.length };
+}
+
+function Highlight({ text, query }: { text: string; query: string }) {
+  const q = normalize(query);
+  const at = q ? text.toLowerCase().indexOf(q) : -1;
+  if (at < 0) return <>{text}</>;
+  return (
+    <>
+      {text.slice(0, at)}
+      <mark>{text.slice(at, at + q.length)}</mark>
+      {text.slice(at + q.length)}
+    </>
+  );
+}
+
 export function RulesExplorer({ rules }: { rules: Rules }) {
   const [query, setQuery] = useState("");
+  const [open, setOpen] = useState(false);
+  const [active, setActive] = useState(-1);
+  const listId = useId();
+  const index = useMemo(() => buildIndex(rules), [rules]);
+  const { items, total } = suggest(index, query);
+  const exact = items.length === 1 && items[0].value.toLowerCase() === normalize(query);
+  const showList = open && items.length > 0 && !exact;
   const verdict = check(rules, query);
+
+  const optionId = (i: number) => `${listId}-${i}`;
+
+  // Выбранная стрелками подсказка не должна уезжать за край списка.
+  useEffect(() => {
+    if (active >= 0) document.getElementById(`${listId}-${active}`)?.scrollIntoView({ block: "nearest" });
+  }, [active, listId]);
+
+  function pick(e: Entry) {
+    setQuery(e.value);
+    setOpen(false);
+    setActive(-1);
+  }
+
+  function onKeyDown(ev: React.KeyboardEvent<HTMLInputElement>) {
+    if (ev.key === "ArrowDown") {
+      ev.preventDefault();
+      setOpen(true);
+      setActive((i) => Math.min(i + 1, items.length - 1));
+    } else if (ev.key === "ArrowUp") {
+      ev.preventDefault();
+      setActive((i) => Math.max(i - 1, -1));
+    } else if (ev.key === "Enter" && showList && active >= 0) {
+      ev.preventDefault();
+      pick(items[active]);
+    } else if (ev.key === "Escape" && showList) {
+      ev.preventDefault();
+      setOpen(false);
+      setActive(-1);
+    }
+  }
   // Пара доменов есть в обоих списках.
   const autoAll = [...new Set([...rules.auto.inside, ...rules.auto.googleAi])];
   const autoTotal = autoAll.length;
@@ -110,19 +213,71 @@ export function RulesExplorer({ rules }: { rules: Rules }) {
     <div className="explorer">
       <div className="checker">
         <label htmlFor="checker-input">Проверь программу или сайт</label>
-        <input
-          id="checker-input"
-          type="text"
-          inputMode="url"
-          autoComplete="off"
-          spellCheck={false}
-          placeholder="instagram.com или brave.exe"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-        />
+        <div className="combo">
+          <input
+            id="checker-input"
+            type="text"
+            inputMode="url"
+            autoComplete="off"
+            spellCheck={false}
+            placeholder="instagram.com или brave.exe"
+            role="combobox"
+            aria-expanded={showList}
+            aria-controls={listId}
+            aria-autocomplete="list"
+            aria-activedescendant={showList && active >= 0 ? optionId(active) : undefined}
+            value={query}
+            onChange={(e) => {
+              setQuery(e.target.value);
+              setOpen(true);
+              setActive(-1);
+            }}
+            onFocus={() => setOpen(true)}
+            onBlur={() => setOpen(false)}
+            onKeyDown={onKeyDown}
+          />
+          <div className="suggest" hidden={!showList}>
+            <ul id={listId} role="listbox" aria-label="Подсказки из списков">
+              {items.map((e, i) => (
+                <li
+                  key={e.value}
+                  id={optionId(i)}
+                  role="option"
+                  aria-selected={i === active}
+                  className={`suggest-${e.to}`}
+                  // mousedown, чтобы выбор сработал раньше, чем поле потеряет фокус
+                  onMouseDown={(ev) => {
+                    ev.preventDefault();
+                    pick(e);
+                  }}
+                  onMouseEnter={() => setActive(i)}
+                >
+                  <span className="suggest-dot" aria-hidden="true" />
+                  <span className="suggest-value">
+                    <Highlight text={e.value} query={query} />
+                  </span>
+                  <span className="suggest-source">{e.source}</span>
+                  <span className="sr-only">{e.to === "vpn" ? ", через VPN" : ", напрямую"}</span>
+                </li>
+              ))}
+            </ul>
+            {total > items.length && (
+              <p className="suggest-more">
+                Ещё {total - items.length}, уточни запрос
+              </p>
+            )}
+          </div>
+        </div>
         <div className="checker-examples">
           {EXAMPLES.map((ex) => (
-            <button key={ex} type="button" onClick={() => setQuery(ex)}>
+            <button
+              key={ex}
+              type="button"
+              onClick={() => {
+                setQuery(ex);
+                setOpen(false);
+              }}
+            >
               {ex}
             </button>
           ))}

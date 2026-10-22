@@ -1127,6 +1127,95 @@ code {
   border-color: var(--vpn);
 }
 
+/* Подсказки под полем проверки. Точка — цвет линии, по которой пойдёт трафик. */
+.combo {
+  position: relative;
+}
+
+.suggest {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  z-index: 10;
+  padding: 6px;
+  border-radius: 14px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow-win);
+}
+
+.suggest[hidden] {
+  display: none;
+}
+
+.suggest ul {
+  max-height: 340px;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.suggest li {
+  --c: var(--vpn);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 12px;
+  border-radius: 10px;
+  cursor: pointer;
+}
+
+.suggest li.suggest-direct {
+  --c: var(--direct);
+}
+
+.suggest li[aria-selected="true"] {
+  background: var(--surface-2);
+  box-shadow: inset 3px 0 0 var(--c);
+}
+
+.suggest-dot {
+  flex: none;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 3px solid var(--c);
+}
+
+.suggest-value {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  font-family: var(--font-mono), monospace;
+  font-size: 14.5px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.suggest-value mark {
+  background: none;
+  color: var(--vpn-ink);
+  font-weight: 700;
+}
+
+.suggest-direct .suggest-value mark {
+  color: var(--direct-ink);
+}
+
+.suggest-source {
+  flex: none;
+  font-size: 13px;
+  color: var(--ink-3);
+}
+
+.suggest-more {
+  margin: 4px 12px 2px;
+  font-size: 13px;
+  color: var(--ink-3);
+}
+
 .checker-examples {
   display: flex;
   flex-wrap: wrap;
