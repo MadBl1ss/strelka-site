@@ -13,11 +13,20 @@ npm run dev      # http://localhost:3000, правки видны сразу
 npm run build    # проверка и сборка
 ```
 
-## Деплой на Vercel
+## Деплой
 
-Открой [vercel.com/new](https://vercel.com/new), выбери этот репозиторий и нажми
-Deploy. Настройки по умолчанию подходят: Vercel сам распознает Next.js, переменные
-окружения не нужны. После этого каждый пуш в `main` выкатывается сам.
+Сайт живёт на GitHub Pages: https://madbl1ss.github.io/strelka-site/. Адреса
+`github.io` в России открываются без VPN, а `*.vercel.app` у многих провайдеров
+заблокированы.
+
+Каждый пуш в `main` собирает статический экспорт (`out/`) и выкладывает его
+workflow `.github/workflows/pages.yml`. Подпапку `/strelka-site` workflow
+передаёт через `PAGES_BASE_PATH`. Локально переменная не нужна, и сайт работает
+от корня. Чтобы собрать так же, как на Pages:
+
+```bash
+PAGES_BASE_PATH=/strelka-site npm run build
+```
 
 ## Откуда данные
 
